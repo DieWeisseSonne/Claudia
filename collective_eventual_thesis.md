@@ -12,7 +12,7 @@
 
 ## The Two Projects
 
-### Project A: The Orchestration Paper (Binding Architecture)
+### Project A: The Orchestration Paper (Coherence Without Orchestration)
 
 **Claim:** A capacity-limited workspace that forces integration of
 heterogeneous specialist outputs under compression pressure produces the

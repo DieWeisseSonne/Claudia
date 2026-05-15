@@ -509,7 +509,7 @@ behavior. So this is genuinely open empirical territory.
 
 **Our research program produces a combined paper:**
 
-- **"The Theatre Has No Stage: Binding Without Orchestration in
+- **"The Theatre Has No Stage: Coherence Without Orchestration in
   Memory-Augmented Language Agents"** (`orchestration paper.md`) — a single submission
   merging the benchmark and method contributions. It presents the architecture
   (binding without orchestration, one workspace bottleneck producing
