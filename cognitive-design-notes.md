@@ -1,8 +1,12 @@
 # Cognitive Science → Architecture Design Notes
 
-> **Status:** working notes. Maps experimental findings from GWT, AST, and PP
-> to design decisions for the multi-tiered memory and salience gate. Derived
-> from literature search May 2026.
+> **Status:** raw literature review. Maps experimental findings from GWT,
+> AST, and PP to design decisions. Derived from literature search May 2026.
+>
+> **The actionable design spec has been distilled into
+> `CORE-architecture-spec.md`.** This document is the empirical grounding —
+> the experiments behind each design decision. Refer here for "why this
+> principle?" and to the spec for "what to build."
 >
 > **Purpose:** Ground architectural choices in empirical mechanisms, not just
 > theoretical frameworks. Each section: what the brain does (experiment) →
@@ -708,3 +712,190 @@ science findings:
 - Prefrontal scaling of reward prediction error (arXiv:2512.09761, 2025).
 - Neural mechanisms of resource allocation in working memory (Science
   Advances, 2025).
+
+---
+
+## 9. Engineering-to-Cognitive Mapping
+
+What a standard production agent already has, read through the cognitive
+lens — and what upgrades produce the salience-gated architecture.
+
+### 9.1 What agents already are (cognitively)
+
+| Standard agent feature | Cognitive mechanism it already implements |
+|---|---|
+| Context window | Capacity-limited workspace (GWT). Forces compression, all processing reads from it. |
+| Tool calling | Specialist sub-agents. Narrow domain, structured results. |
+| RAG | Episodic memory retrieval by resemblance (Hume's resemblance principle as cosine similarity). |
+| System prompt | Conservative kernel (L4). Persistent identity that doesn't change across turns. |
+| ReAct loop | Serial integration cycle. Reason → Act → Observe → Reason is the integration bottleneck. |
+| Summarization when context is full | Workspace compression. Consolidation from L0 to a compressed form. |
+| Reflection / self-critique | Metacognition. Higher-order thought about first-order output (HOT pattern). |
+
+### 9.2 The upgrades (what's missing → what to build)
+
+Each upgrade uses standard engineering primitives in a non-standard
+configuration. The cognitive science tells you WHICH upgrades matter and
+WHY — without it, you'd be guessing about feature priority.
+
+| Upgrade | What's missing | Engineering primitive | Cognitive mechanism |
+|---|---|---|---|
+| Tiered memory | One flat vector store | Two stores (episodic + semantic) + system prompt | L2/L3/L4 distinction; hippocampo-neocortical |
+| Temporal metadata | No time awareness | Timestamps on entries + heartbeat timer | Temporal binding (RPT); heartbeat |
+| Salience-gated consolidation | Store everything or nothing | Summarize + embed + similarity check + conditional insert | GWT ignition; attention gate |
+| PE-routed storage | One storage path | Nearest-neighbor + threshold → update vs. insert | PP assimilation/accommodation (Impl 8-9) |
+| Strength-based resistance | All entries equally mutable | Counter per entry + conditional update threshold | Strong memories resist modification (Impl 10) |
+| Reconstructive recall | Paste chunks verbatim | Store short summaries, generate full context at retrieval | Spens-Burgess compressive RAG (Impl 13) |
+| Temporal boost | No retroactive promotion | Rolling buffer + conditional promotion on high PE | STC mechanism (Impl 11) |
+| Workspace broadcast | Orchestrator routes messages | Shared state, one writer, many readers, capacity-limited | GWT global broadcast |
+| Learned consolidation | Heuristic or manual storage | RL policy on {promote, keep, decay} actions | PFC-BG gating (Impl 15) |
+| Mode switching | Uniform processing | Running average PE + threshold + two code paths | Thalamic arbitration (Impl 17) |
+
+### 9.3 What the mapping reveals
+
+**Direct maps (use existing primitives as-is):** event-driven integration
+triggers, embedding similarity as PE signal, update-vs-insert database
+logic, experience replay for L2→L3 consolidation, serial integration via
+single LLM call.
+
+**Modified maps (existing primitive, different configuration):** shared
+blackboard → capacity-limited with single writer; RAG → reconstructive
+(generate from cue, don't paste verbatim); summarization → inverted (store
+what's UNpredictable, not what's important); RLHF → applied to memory
+management, not model behavior; context compression → learned and
+domain-adaptive, not static.
+
+**Novel (no existing primitive, must build):** temporal boost / STC
+(retroactive consolidation promotion); workspace-as-attention-schema
+(self-describing state that improves specialist coordination); inverted
+summarization (perplexity-based detail selection).
+
+The hardest piece is RL-learned consolidation because of the long
+credit-assignment horizon (sessions, not steps). Everything else is
+buildable from standard components.
+
+### 9.4 Missing from the current 17 implications
+
+Engineering primitives and cognitive mechanisms not yet incorporated:
+
+- **Inhibition / active suppression.** The workspace gate admits relevant
+  information but has no active suppression of known distractors. As L2/L3
+  stores grow, retrieval noise increases. Negative retrieval filtering
+  (blacklisting known-irrelevant results) should complement positive
+  filtering.
+
+- **Priming.** Specialist outputs that don't survive workspace compression
+  are currently lost. In biology, subliminal inputs still prime subsequent
+  processing. A "subliminal buffer" of rejected inputs could bias future
+  retrieval queries.
+
+- **Source monitoring.** L2 entries store timestamp and session_id but not
+  source provenance (user statement vs. tool output vs. inference vs.
+  reconstruction). Source monitoring matters for confidence calibration
+  (I3) — a fact from a reliable tool should carry higher confidence than
+  one the system inferred.
+
+- **Prospective memory.** No mechanism for future-directed memory
+  ("remind me about X in session 5"). Could be implemented as scheduled
+  retrieval triggers on the heartbeat. Practical utility + I4 improvement.
+
+- **Multi-agent debate.** Specialists return independent results. The
+  architecture doesn't surface DISAGREEMENTS between specialists to the
+  workspace. The workspace should know when specialists conflict — that
+  conflict is information relevant to I2 (integration quality).
+
+---
+
+## 10. Reactive-with-Warmup Execution Model
+
+The production architecture is reactive, not always-on. The system does
+not think between inputs. But it is not purely cold-start either — a
+warm-up phase primes the workspace before full integration.
+
+### 10.1 The L4 bias agent model
+
+Agents with access to L4 (conservative kernel) act as persistent
+background influences — like living system prompts. They do not generate
+workspace content directly. They generate BIAS SIGNALS that shape what the
+workspace attends to.
+
+In the reactive model, L4 bias agents activate on input rather than
+running continuously. When input arrives, they check: "does this touch
+any kernel-level concerns?" and inject flags into the warm-up context.
+This gives the workspace identity-aware priming without continuous
+inference cost.
+
+Higher-order agents (specialists, the narrator) are the ones that surface
+to the workspace. Their outputs are the workspace content. The hierarchy
+is in access pattern: L4 agents have deep, constant, low-bandwidth
+influence. Specialists have high-bandwidth, bursty influence. The narrator
+integrates where depth meets surface.
+
+### 10.2 Three-phase execution
+
+**Phase 1 — Warm-up (cheap, parallel, no narrator LLM call):**
+
+1. Embed the input and retrieve from L2/L3 (embedding search).
+2. Load relevant L4 kernel entries.
+3. Activate L4 bias agents — flag kernel-level concerns relevant to
+   this input.
+4. Pull recent workspace states from rolling buffer (last few turns).
+5. Trigger relevant specialists (event-driven, parallel execution).
+
+The warm-up assembles a pre-integrated context package. The narrator
+does not start cold — it receives a primed workspace.
+
+**Phase 2 — Integration (the LLM call):**
+
+6. Narrator receives: warm-up context (retrievals, L4 flags, recent
+   states, specialist outputs) + input.
+7. Narrator compresses under workspace capacity limit → produces new
+   workspace state.
+8. Narrator produces user-facing response.
+9. Workspace state is broadcast (available to any subsequent specialist
+   calls in the same cycle).
+
+**Phase 3 — Post-response (async, deferred):**
+
+10. Embed new workspace.state.
+11. PE computation (cosine distance to nearest L2/L3 neighbors).
+12. Consolidation routing (L1 → L2 decision based on PE).
+13. Temporal boost check (if high PE, flag buffer entries).
+14. Strength updates (increment retrieval_count for entries used in
+    step 1).
+
+**Idle heartbeat (between turns, on timer):**
+
+15. L2 → L3 consolidation (cluster episodes, extract patterns).
+16. Memory decay (reduce strength of unretrieved entries).
+17. Memory audit (check distribution balance).
+18. Novelty countermeasures (salience collapse detection).
+
+### 10.3 Latency budget
+
+The user-facing latency is Phase 1 + Phase 2. Phase 1 is dominated by
+specialist execution time (parallel, bounded). Phase 2 is one LLM call.
+Total: retrieval latency + specialist latency + one LLM call.
+
+Phase 3 runs after the response is sent. The critical constraint: Phase 3
+uses the LIVE workspace state from Phase 2. The salience signal is still
+fresh. If consolidation were deferred to idle, the workspace would be
+stale and the consolidation judgment degraded.
+
+The idle heartbeat runs deferred, expensive operations (pattern extraction,
+decay, auditing) that do not need the live workspace state.
+
+### 10.4 Relationship to the always-on model
+
+The reactive-with-warmup model is the production architecture. It is
+cost-effective (no inference between inputs) and still captures most of
+the benefit of primed context (the warm-up surfaces relevant memories and
+L4 concerns before the narrator integrates).
+
+The always-on model — continuous internal activity, random thoughts,
+input-as-alignment-signal — is a separate experimental direction. See
+`always-on-experiment.md` for the design. The key difference: in the
+reactive model, the workspace is empty between inputs. In the always-on
+model, the workspace is never empty — it contains whatever the background
+activity surfaced most recently, and input competes with ongoing internal
+thought for workspace capacity.

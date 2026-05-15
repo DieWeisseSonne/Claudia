@@ -1,4 +1,4 @@
-# The Theatre Has No Stage: Coherence Without Orchestration in Memory-Augmented Language Agents
+# The Theatre Has No Stage: Coherence Without Orchestration in Parallel Language Agents through Salience-Gated Memory
 
 > **Status:** combined paper draft — merges the benchmark paper
 > (`foundations.md` §6) and the method paper (`foundations.md` §7) into a
@@ -279,7 +279,7 @@ cross-boundary performance isolates what the memory tiers contribute to
 entity permanence. Primary: **I6** (object permanence). Available: Hugging
 Face, public leaderboard.
 
-**Practical agentic benchmarks (holistic).** Two additional benchmarks test
+**Practical agentic benchmarks (holistic).** Five additional benchmarks test
 multiple indicators simultaneously under practical conditions:
 
 - *tau-bench* (Yao et al., 2024; Sierra Research). Customer service
@@ -292,6 +292,55 @@ multiple indicators simultaneously under practical conditions:
   pressure is a direct test of workspace coherence. Available: GitHub
   (sierra-research/tau-bench), with the expanded tau3-bench variant adding
   banking and voice domains.
+
+- *SWE-bench* (Jimenez et al., 2024; ICLR). Real-world GitHub issues
+  from popular Python repositories, each requiring the agent to locate
+  relevant code across multiple files, build a coherent model of the
+  codebase, and produce a correct patch. SWE-bench Verified (500 human-
+  validated instances) is the standard evaluation subset. The long-horizon,
+  cross-file reasoning SWE-bench demands is a direct test of workspace
+  integration under realistic conditions: the agent must hold information
+  gathered from file A in working memory while editing file B, reconcile
+  conflicting signals from tests, documentation, and source code, and
+  maintain a coherent plan across many retrieval steps. Tests **I1**
+  (facts learned from one file must persist and influence reasoning about
+  another), **I2** (integration of evidence from heterogeneous sources
+  under load), and **I6** (tracking the state of code entities — functions,
+  classes, variables — across files). This is the benchmark that most
+  directly demonstrates practical utility: if binding-process improvements
+  translate to higher patch-success rates on real engineering tasks, the
+  architecture justifies its complexity. Available: GitHub
+  (princeton-nlp/SWE-bench), public leaderboard.
+
+- *SREGym* (2025). 86 SRE problems on live Kubernetes clusters, covering
+  OS-level faults, metastable failures, and concurrent failures with
+  ambient noise. Agents must diagnose and remediate production incidents
+  using real observability tooling via MCP. SRE incident response is
+  inherently a multi-step, state-tracking, temporally-indexed problem:
+  diagnosing a cascading failure requires holding a model of system state
+  across many observations, remembering what was already checked, and
+  reasoning about the temporal ordering of events (which service degraded
+  first? did the fix propagate?). Tests **I1** (observations from early
+  diagnostic steps must persist and inform later reasoning), **I2**
+  (integrating signals from logs, metrics, traces, and topology
+  simultaneously), **I4** (temporal ordering of failure events is
+  essential to root-cause analysis), and **I6** (tracking the state of
+  services, pods, and dependencies across diagnostic steps). Frontier
+  agents show up to 40% performance variation across failure types,
+  indicating substantial headroom. Available: GitHub (SREGym/SREGym),
+  MIT license.
+
+- *ITBench* (Jha et al., 2025; ICML). 102 real-world IT automation
+  scenarios across SRE, security operations, and financial operations,
+  with push-button reproducibility and interpretable metrics. SOTA agents
+  resolve only 11.4% of SRE scenarios — the lowest across domains —
+  making this a high-headroom benchmark where architectural improvements
+  in state tracking and integration should be most visible. The SRE
+  subset tests the same indicators as SREGym (**I1**, **I2**, **I4**,
+  **I6**) but in a broader operational context that also touches **I5**
+  (the agent must maintain a consistent diagnostic hypothesis across
+  many tool invocations rather than flip between contradictory
+  explanations). Available: GitHub (ibm/itbench), public leaderboard.
 
 - *GAIA* (Mialon et al., 2024; ICLR). 466 multi-step assistant tasks
   requiring reasoning, tool use, and web browsing. Humans achieve 92%
@@ -567,7 +616,7 @@ entries marked [C] are custom HBB task families.
 | I4 Temporal | Temporal probes [C] | Temporal Self-Awareness [C] | Graceful degradation [C] |
 | I5 Unified | Identity probing [C] | Adversarial Identity Probing [C] | Identity drift [C] |
 | I6 Permanence | BABILong [E], entity tracking [C] | Entity State Drift [C] | Entity gap retrieval [C] |
-| Holistic | — | tau-bench [E], GAIA [E] | — |
+| Holistic | — | tau-bench [E], SWE-bench [E], SREGym [E], ITBench [E], GAIA [E] | — |
 
 ### 4.4 What the benchmark does not measure
 

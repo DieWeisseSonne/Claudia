@@ -15,38 +15,50 @@ Rows are indicators (I1-I6), columns are time horizons (single-session, multi-se
 
 ## Part 1: Existing benchmarks mapped to indicators
 
-### I1 (Cross-episode persistence)
+The architecture's core claim is about binding across time — memory tiers,
+heartbeat, consolidation, workspace integration of retrieved state. The
+benchmarks that test this claim most directly are those where time horizon is
+structurally load-bearing: the agent must persist information across session
+boundaries, track state across many steps, or reason about temporal ordering.
+We divide existing benchmarks into two tiers accordingly.
 
-- **LoCoMo** [E] — the most directly relevant existing benchmark. Tests long-term conversational memory with temporal, factual, and entity-tracking questions across sessions. Established baselines exist for GPT-4, RAG, and MemGPT-style systems. Run as-is; it already tests I1 naturally.
-- **MSC (Multi-Session Chat)** [E] — simpler multi-session fact recall. Good for establishing floor-level I1 numbers cheaply. Useful as a sanity check rather than a headline result.
+### Tier A — Time-horizon relevant (primary)
 
-### I2 (Integrative bottleneck)
+These benchmarks test capabilities that structurally require persistence,
+temporal reasoning, or state tracking across extended interactions. They are
+where the architecture should produce the largest margins.
 
-- **MuSiQue** [E] — multi-hop QA requiring integration of 2-4 evidence pieces. Adapt by routing evidence through different channels (some from L2 memory retrieval, some from tool calls, some from current context) rather than presenting all evidence in-context. The adapted version tests workspace integration specifically.
-- **DROP** [E] — discrete reasoning over paragraphs. Requires numerical integration of multiple facts. Single-session but tests the workspace under load.
+- **LoCoMo** [E] — ~600-turn conversations across up to 32 sessions. Tests long-term conversational memory with five question types including temporal ordering and multi-hop reasoning across sessions. The most directly time-horizon-relevant existing benchmark. Primary: I1, secondary: I4, I6.
 
-### I3 (Metacognitive self-monitoring)
+- **ITBench** [E] — 102 real-world IT automation scenarios (IBM Research, ICML 2025). SOTA agents resolve only 11.4% of SRE scenarios — the highest-headroom benchmark in the suite. SRE incidents are inherently temporally structured: the agent must hold a diagnostic model across many tool invocations, track system state changes, reason about failure ordering, and maintain a consistent hypothesis rather than flipping between contradictory explanations. Tests I1 + I2 + I4 + I5 + I6.
 
-- **Calibration on MMLU / TriviaQA** [E] — standard confidence calibration (Brier score, ECE). Run before and after consolidation events to measure whether calibration improves with experience. The delta is the interesting number, not the absolute score.
-- **SelfAware** (Yin et al. 2023) [E] — tests whether models know what they don't know. Relevant to I3's error-detection component.
+- **SREGym** [E] — 86 SRE problems on live Kubernetes clusters covering OS-level faults, metastable failures, and concurrent failures. Like ITBench but with higher fidelity (live environments, ambient noise). Incident diagnosis requires persisting observations across diagnostic steps, integrating logs/metrics/traces/topology simultaneously, and temporal ordering of failure events for root-cause analysis. Tests I1 + I2 + I4 + I6. Up to 40% performance variation across failure types.
 
-### I4 (Temporal binding)
+- **SWE-bench Verified** [E] — real-world GitHub issues requiring cross-file reasoning across many retrieval steps. The horizon here is across files and tool invocations within a single task: the agent must hold information from file A while editing file B, reconcile signals from tests, docs, and source, and maintain a coherent plan. Not multi-session, but the number of retrieval steps and the need to persist gathered context makes workspace integration load-bearing. Tests I1 + I2 + I6.
 
-- No strong existing benchmark. This is where the custom HBB tasks are essential. LoCoMo has some temporal ordering questions that provide partial coverage.
+- **tau-bench** [E] — customer service simulation across airline and retail domains. Multi-turn state tracking under policy constraints. The agent must track customer state, follow complex policies, and maintain consistency across many turns. The Pass^k consistency metric exposes unreliable state tracking. Tests I1 + I5 + I6.
 
-### I5 (Unified perspective)
+### Tier B — Supplementary (single-session controls)
 
-- No strong existing benchmark for self-narrative consistency across sessions. Dialogue consistency datasets (DECODE, DialogueNLI) test within-conversation consistency but not cross-session identity coherence.
+These benchmarks are single-session and do not structurally require
+cross-episode persistence or temporal binding. They serve as controls:
+if the architecture helps on these, the workspace integration has general
+value; if it only helps on Tier A, the contribution is specific to
+time-horizon tasks. They should not be headline results.
 
-### I6 (Object permanence)
+- **MuSiQue** [E] — multi-hop QA, adapted by routing evidence through different channels (L2 retrieval, tool output, current message). Tests I2 workspace integration but within a single session.
 
-- **BABILong tasks 2-3** [E] — entity tracking and positional reasoning. Run across context-window boundaries using memory tiers rather than in a single long context. The delta between in-context and cross-boundary performance measures what the memory tiers contribute.
-- **LoCoMo entity questions** [E] — a subset of LoCoMo specifically about entities introduced earlier. Already covers multi-session entity tracking.
+- **DROP** [E] — discrete reasoning over paragraphs. Tests I2 workspace under numerical load. Single-session.
 
-### Practical agentic benchmarks (holistic)
+- **SelfAware** [E] — tests whether models recognize their epistemic limits. Tests I3. Single-session. The custom I3 task (Confidence After Learning) is the time-horizon-relevant version.
 
-- **tau-bench** [E] — customer service simulation. Tests I1 + I5 + I6 simultaneously in a practical setting. Agents must follow policies, track customer state, maintain consistency. This is the strongest "the system is useful" benchmark.
-- **GAIA** [E] — general multi-step assistant tasks. Tests I2 (integration under tool-use load) and I7 (action-consequence) in a practical setting. Good for showing the architecture helps on tasks people actually care about.
+- **MMLU / TriviaQA calibration** [E] — standard confidence calibration. Only time-horizon-relevant when used as a before/after measure around consolidation events, which is the custom I3 protocol.
+
+- **BABILong tasks 2-3** [E] — entity tracking adapted to run across context-window boundaries. The cross-boundary adaptation adds some time-horizon relevance, but the underlying tasks are synthetic. Tests I6.
+
+- **MSC** [E] — multi-session fact recall, but only 5 sessions. Redundant with LoCoMo. Sanity check only.
+
+- **GAIA** [E] — multi-step assistant tasks. Tests I2 + I7. Single-session. Demonstrates generality but not the core time-horizon claim.
 
 ---
 
@@ -115,9 +127,10 @@ Run the custom HBB tasks with these ablations to isolate component contributions
 
 ## Recommended priority ordering
 
-1. **LoCoMo + tau-bench** — existing benchmarks, fastest to run, give credibility
-2. **I4 (temporal) and I1 (persistence) custom tasks** — biggest expected margin, strongest story
-3. **I2 (channel conflict) and I6 (entity drift) custom tasks** — test the workspace and salience gate directly
-4. **I5 (identity probing) and I3 (calibration)** — important but harder to evaluate (LLM-as-judge dependency)
-5. **Ablation battery** on custom tasks
-6. **Longitudinal study** — run last, most expensive, most impressive if it works
+1. **Tier A existing benchmarks** — LoCoMo, ITBench, SREGym, SWE-bench, tau-bench. These are where the architecture should produce the largest margins. Run first, establish credibility on benchmarks reviewers recognize.
+2. **I4 (temporal) and I1 (persistence) custom tasks** — biggest expected margin on the core time-horizon claim. The heartbeat and memory tiers are most directly tested here.
+3. **I6 (entity drift) and I2 (channel conflict) multi-session custom tasks** — test salience gate and workspace integration across sessions specifically.
+4. **I5 (identity probing) and I3 (calibration) multi-session custom tasks** — important but harder to evaluate (LLM-as-judge dependency).
+5. **Ablation battery** on custom tasks — the mechanistic story.
+6. **Tier B existing benchmarks** — run as single-session controls. If the architecture helps here too, great; if not, it sharpens the contribution claim to time-horizon tasks.
+7. **Longitudinal study** — run last, most expensive, most impressive if it works.
