@@ -337,14 +337,24 @@ goes to L1 automatically. The gate is L1 → L2.
   source: enum(user, tool, inference, reconstruction),
   strength: float,
   retrieval_count: int,
-  last_retrieved: timestamp
+  last_retrieved: timestamp,
+  action: string | null,       // what the agent did (if action episode)
+  outcome: enum(success, failure, partial, unknown),
+  outcome_signal: string | null // tests passed, user accepted, incident resolved, etc.
 }
 ```
 
-**L3** includes both semantic (facts, entity states, relationships) and
-procedural (verified action sequences that succeeded). Procedural entries
-are consolidated from L2 episodes where the same pattern succeeded
-repeatedly — the skill-learning pathway.
+**L3** includes semantic, procedural, and anti-pattern entries:
+
+- *Semantic:* facts, entity states, relationships. Consolidated from L2
+  episodes that share informational content.
+- *Procedural:* action sequences that succeeded. Consolidated from L2
+  episodes where the same pattern produced positive outcomes repeatedly.
+  Each procedural entry carries an outcome rate (successes / attempts)
+  and the boundary conditions under which it applies.
+- *Anti-patterns:* action sequences that failed. Consolidated from L2
+  episodes where a pattern produced negative outcomes. Retrieved as
+  warnings during warm-up ("don't do this in context Y").
 
 **L4 as living influence.** L4 entries are associated with bias agents
 that activate during warm-up. When input arrives, L4 bias agents check
@@ -414,16 +424,120 @@ Rolling buffer of last N workspace outputs (from L1) with heartbeat
 timestamps. When PE > threshold_high: retroactively flag last K buffer
 entries for L2 promotion. Boost decays with temporal distance.
 
-### 4.6 The feedback loop and its risks
+### 4.6 Dual feedback loops: taste and competence
 
-The loop: prior knowledge → current attention → future memory → future
-attention. The agent develops taste.
+The architecture requires two loops, not one. The perception loop alone
+produces an agent that remembers better over time but doesn't act better.
+A smart filing cabinet with taste is still a filing cabinet.
 
-**Salience collapse** — the loop closes too tight:
+**Loop 1 — Perception (taste).** Prior knowledge → current attention →
+future memory → future attention. The agent develops taste — it gets
+better at knowing what matters. This is the salience gate operating on
+facts.
+
+**Loop 2 — Action (competence).** Action → outcome → skill consolidation
+→ future action selection. The agent develops competence — it gets better
+at knowing what to do. This is the salience gate operating on skills.
+
+Both loops share the same infrastructure (workspace, PE computation,
+consolidation, tiered memory). They connect at two points:
+
+1. **Context informs action.** Retrieved L3 semantic knowledge (Loop 1)
+   feeds into the workspace, where the narrator uses it to select
+   actions. Better knowledge → better action selection.
+2. **Outcomes feed perception.** Action outcomes (Loop 2) are high-PE
+   events for the perception loop. A failed action is surprising —
+   it contradicts the expected pattern — and triggers accommodation
+   (new L2 entry capturing the failure context). Over time, the system
+   learns the boundary conditions of its skills.
+
+```mermaid
+flowchart TB
+    subgraph perception [Loop 1: Taste]
+        Attend["Workspace compression\n(what survives = what matters)"]
+        Consolidate["PE-routed consolidation\n(assimilate or accommodate)"]
+        RetrieveFacts["Retrieve from L2/L3\n(richer knowledge = sharper attention)"]
+        RetrieveFacts --> Attend --> Consolidate --> RetrieveFacts
+    end
+
+    subgraph action [Loop 2: Competence]
+        Act["Select action\n(informed by L3 procedures)"]
+        Observe["Observe outcome\n(tests, user feedback, env)"]
+        SkillStore["Outcome-weighted\nskill consolidation"]
+        RetrieveSkills["Retrieve procedures\n+ anti-patterns"]
+        RetrieveSkills --> Act --> Observe --> SkillStore --> RetrieveSkills
+    end
+
+    subgraph memory [Shared Memory Infrastructure]
+        L2["L2 Episodic\n(facts + actions + outcomes)"]
+        L3["L3 Semantic + Procedural\n(patterns, skills, anti-patterns)"]
+        L4["L4 Conservative Kernel\n(identity anchor)"]
+    end
+
+    Consolidate --> L2
+    Consolidate -->|"small PE"| L3
+    SkillStore --> L2
+    SkillStore -->|"cluster successes"| L3
+    SkillStore -->|"cluster failures"| L3
+
+    L2 --> RetrieveFacts
+    L3 --> RetrieveFacts
+    L3 --> RetrieveSkills
+    L4 -->|"bias signals"| Attend
+
+    RetrieveFacts -->|"context informs\naction selection"| Act
+    Observe -->|"outcome is high-PE\nevent for perception"| Consolidate
+```
+
+**How the action loop works:**
+
+1. The narrator selects an action (tool call, code generation, response
+   strategy) informed by L3 procedural entries retrieved during warm-up.
+2. The action executes. The outcome is observed (tests pass/fail, user
+   accepts/rejects, incident resolves/persists).
+3. The L2 entry for this episode is tagged with `action` + `outcome` +
+   `outcome_signal`.
+4. During consolidation routing:
+   - Successful action + low PE against existing L3 procedure →
+     strengthen the existing procedure (increase outcome rate).
+   - Successful action + high PE → new L2 entry; may cluster into a
+     new L3 procedure over time.
+   - Failed action + low PE against existing L3 procedure → weaken the
+     procedure (decrease outcome rate, narrow boundary conditions).
+   - Failed action + high PE → new L2 entry; may cluster into an
+     L3 anti-pattern.
+5. During idle heartbeat, L2 action episodes with shared structure
+   cluster into L3 procedural entries (successes) or anti-patterns
+   (failures). Each carries outcome rate and boundary conditions.
+6. During future warm-up, L3 procedures are retrieved as
+   recommendations ("this worked in similar contexts, outcome rate
+   85%") and anti-patterns as warnings ("this failed in similar
+   contexts — avoid unless conditions differ").
+
+**What makes this self-improving:** the action loop doesn't just store
+what happened — it tracks whether it worked, abstracts the pattern,
+and applies it differentially in the future. An agent that tried
+approach A in context X and failed, then tried approach B and
+succeeded, will retrieve B (not A) when it encounters context X again.
+This is skill acquisition, not just memory.
+
+### 4.7 Risks
+
+**Salience collapse** — the perception loop closes too tight:
 - Novelty bonus in consolidation (high PE = high learning value).
 - Exploration budget in the attention gate.
 - Periodic memory audit on heartbeat.
 - Human-in-the-loop override.
+
+**Skill ossification** — the action loop over-consolidates early
+successes:
+- Outcome rate decay: procedural entries that haven't been re-tested
+  recently lose confidence, encouraging re-exploration.
+- Failure as exploration: failed actions in familiar territory trigger
+  update mode (Principle 17), increasing compute investment in
+  understanding what changed.
+- Anti-pattern review: periodically check whether anti-patterns still
+  apply (the conditions that caused failure may have changed).
 
 ---
 
@@ -436,13 +550,17 @@ Letta's idle consolidation — wired through the salience gate.
 ### Phase 1 — Warm-up (cheap, parallel, no narrator call)
 
 1. Embed input, retrieve from L2/L3.
-2. Load relevant L4 kernel entries.
-3. Activate L4 bias agents — flag kernel-level concerns.
-4. Pull recent workspace states from L1 rolling buffer.
-5. Trigger relevant specialists (parallel execution).
+2. Retrieve L3 procedural entries — surface successful patterns as
+   recommendations (with outcome rate), anti-patterns as warnings.
+3. Load relevant L4 kernel entries.
+4. Activate L4 bias agents — flag kernel-level concerns.
+5. Pull recent workspace states from L1 rolling buffer.
+6. Trigger relevant specialists (parallel execution).
 
 This is Claude Code's "input governance" sequence: memory prefetch,
-skill discovery, context assembly — before the model ever sees the input.
+skill discovery, context assembly — before the model ever sees the
+input. Step 2 is the action loop's contribution: the narrator receives
+not just context but actionable guidance from prior experience.
 
 ### Phase 2 — Integration (one LLM call)
 
@@ -462,19 +580,30 @@ is a capacity-limited workspace state, not an unbounded context append.
 12. Consolidation routing (L1 → L2 decision).
 13. Temporal boost check.
 14. Strength updates for entries used in step 1.
+15. If action was taken: observe outcome when available (test results,
+    user feedback, environment state). Tag L2 entry with action +
+    outcome + outcome_signal. Outcome may arrive asynchronously
+    (e.g., tests run after code is written) — the L2 entry is updated
+    when the signal arrives.
 
 This is Codex's async memory generation, made into a PE-routed
-consolidation decision rather than a summarization.
+consolidation decision with outcome tracking for the action loop.
 
 ### Idle heartbeat
 
-15. L2 → L3 consolidation (cluster episodes, extract patterns — both
-    semantic and procedural).
-16. Memory decay (reduce strength of unretrieved entries).
-17. Memory audit (distribution balance).
-18. Novelty countermeasures (salience collapse detection).
+16. L2 → L3 consolidation (cluster episodes, extract patterns —
+    semantic, procedural, and anti-patterns). Procedural clustering
+    is outcome-weighted: successful episodes consolidate into
+    procedures, failed episodes into anti-patterns.
+17. Memory decay (reduce strength of unretrieved entries).
+18. Outcome rate decay (procedural entries not re-tested recently
+    lose confidence).
+19. Memory audit (distribution balance).
+20. Novelty countermeasures (salience collapse detection).
+21. Anti-pattern review (check whether failure conditions still apply).
 
-This is Letta's sleep-time compute, directed by PE-informed clustering.
+This is Letta's sleep-time compute, directed by PE-informed clustering
+and outcome-weighted skill consolidation.
 
 ### Latency budget
 
